@@ -1,8 +1,8 @@
-import { MouseEventType, RoomObjectCategory } from '@nitrots/nitro-renderer';
+import { RoomObjectCategory } from '@nitrots/nitro-renderer';
 import { FC, useEffect, useRef, useState } from 'react';
 import { GetRoomEngine, WiredFurniType } from '../../../../api';
 import { Button, Column, Flex, Text } from '../../../../common';
-import { useObjectRollOverEvent, useRoom, useWired } from '../../../../hooks';
+import { useObjectRollOverEvent, useWired } from '../../../../hooks';
 import { WiredActionBaseView } from './WiredActionBaseView';
 
 interface ZoneConfig
@@ -25,13 +25,13 @@ export const WiredActionSelectorUsersInZoneView: FC<{}> = props =>
     const [ maxY, setMaxY ] = useState(0);
     const [ invert, setInvert ] = useState(false);
     const [ selecting, setSelecting ] = useState(false);
-    const [ preview, setPreview ] = useState<ZoneConfig | null>(null);
+    const [ liveZone, setLiveZone ] = useState<ZoneConfig | null>(null);
 
     const hoverPos = useRef<TilePos | null>(null);
     const cornerA = useRef<TilePos | null>(null);
+    const isDragging = useRef(false);
 
     const { trigger = null, setIntParams = null, setStringParam = null } = useWired();
-    const { roomSession = null } = useRoom();
 
     const save = () =>
     {
@@ -48,7 +48,7 @@ export const WiredActionSelectorUsersInZoneView: FC<{}> = props =>
         filterExisting: false,
     });
 
-    // Survol → met à jour la position courante + preview si drag en cours
+    // Survol → met à jour hoverPos + preview live si drag en cours
     useObjectRollOverEvent(event =>
     {
         if(!selecting) return;
@@ -63,35 +63,41 @@ export const WiredActionSelectorUsersInZoneView: FC<{}> = props =>
 
         hoverPos.current = tile;
 
-        if(cornerA.current) setPreview(buildZone(cornerA.current, tile));
+        if(isDragging.current && cornerA.current)
+        {
+            setLiveZone(buildZone(cornerA.current, tile));
+        }
     });
 
-    // Overlay pour bloquer le drag Nitro + gérer mousedown/mouseup
     useEffect(() =>
     {
-        if(!selecting || !roomSession) return;
+        if(!selecting) return;
 
-        const overlay = document.createElement('div');
+        // Trouver le canvas Pixi (renderer Nitro)
+        const canvas = document.querySelector('canvas');
 
-        overlay.style.cssText = 'position:fixed;inset:0;z-index:500;cursor:crosshair;';
-        document.body.appendChild(overlay);
+        if(!canvas) return;
 
-        const onMouseMove = (e: MouseEvent) =>
+        // Bloquer UNIQUEMENT le mousedown → empêche le drag Pixi
+        // Le mousemove continue de passer normalement → OBJECT_ROLL_OVER fonctionne
+        const onCanvasMouseDown = (e: Event) =>
         {
-            // Relay mousemove vers le renderer → déclenche OBJECT_ROLL_OVER
-            GetRoomEngine().dispatchMouseEvent(1, e.clientX, e.clientY, MouseEventType.MOUSE_MOVE, e.altKey, e.ctrlKey || e.metaKey, e.shiftKey, false);
-        };
+            e.stopImmediatePropagation();
 
-        const onMouseDown = () =>
-        {
             if(!hoverPos.current) return;
 
             cornerA.current = { ...hoverPos.current };
-            setPreview(buildZone(cornerA.current, cornerA.current));
+            isDragging.current = true;
+            setLiveZone(buildZone(cornerA.current, cornerA.current));
         };
 
+        // Finaliser la sélection au relâchement (n'importe où sur la page)
         const onMouseUp = () =>
         {
+            if(!isDragging.current) return;
+
+            isDragging.current = false;
+
             const a = cornerA.current;
             const b = hoverPos.current ?? cornerA.current;
 
@@ -106,36 +112,36 @@ export const WiredActionSelectorUsersInZoneView: FC<{}> = props =>
             }
 
             cornerA.current = null;
-            hoverPos.current = null;
-            setPreview(null);
+            setLiveZone(null);
             setSelecting(false);
         };
 
         const onKeyDown = (e: KeyboardEvent) =>
         {
-            if(e.key === 'Escape')
-            {
-                cornerA.current = null;
-                hoverPos.current = null;
-                setPreview(null);
-                setSelecting(false);
-            }
+            if(e.key !== 'Escape') return;
+
+            isDragging.current = false;
+            cornerA.current = null;
+            hoverPos.current = null;
+            setLiveZone(null);
+            setSelecting(false);
         };
 
-        overlay.addEventListener('mousemove', onMouseMove);
-        overlay.addEventListener('mousedown', onMouseDown);
-        overlay.addEventListener('mouseup', onMouseUp);
+        // cursor crosshair sur le canvas pendant la sélection
+        (canvas as HTMLElement).style.cursor = 'crosshair';
+
+        canvas.addEventListener('mousedown', onCanvasMouseDown, { capture: true });
+        document.addEventListener('mouseup', onMouseUp);
         window.addEventListener('keydown', onKeyDown);
 
         return () =>
         {
-            overlay.removeEventListener('mousemove', onMouseMove);
-            overlay.removeEventListener('mousedown', onMouseDown);
-            overlay.removeEventListener('mouseup', onMouseUp);
+            (canvas as HTMLElement).style.cursor = '';
+            canvas.removeEventListener('mousedown', onCanvasMouseDown, { capture: true } as any);
+            document.removeEventListener('mouseup', onMouseUp);
             window.removeEventListener('keydown', onKeyDown);
-            document.body.removeChild(overlay);
         };
-    }, [ selecting, roomSession ]);
+    }, [ selecting ]);
 
     useEffect(() =>
     {
@@ -167,7 +173,7 @@ export const WiredActionSelectorUsersInZoneView: FC<{}> = props =>
         }
     }, [ trigger ]);
 
-    const display = preview ?? { minX, maxX, minY, maxY };
+    const display = liveZone ?? { minX, maxX, minY, maxY };
     const hasZone = display.minX !== 0 || display.maxX !== 0 || display.minY !== 0 || display.maxY !== 0;
 
     return (
@@ -175,12 +181,18 @@ export const WiredActionSelectorUsersInZoneView: FC<{}> = props =>
             <Column gap={ 2 }>
                 <Text bold>Zone de sélection</Text>
                 <Button variant={ selecting ? 'primary' : 'secondary' } onClick={ () => setSelecting(v => !v) }>
-                    { selecting ? 'Clique et glisse sur la zone...' : 'Sélectionner la zone' }
+                    { selecting
+                        ? (isDragging.current ? 'Relâche pour valider...' : 'Survole puis clique-glisse...')
+                        : 'Sélectionner la zone'
+                    }
                 </Button>
-                { hasZone &&
+                { (selecting || hasZone) &&
                     <Column gap={ 1 }>
                         <Text small>X : { display.minX } → { display.maxX }</Text>
                         <Text small>Y : { display.minY } → { display.maxY }</Text>
+                        { selecting && !hoverPos.current &&
+                            <Text small variant="danger">Survole d'abord un meuble ou une tuile...</Text>
+                        }
                     </Column>
                 }
                 <Flex alignItems="center" gap={ 1 }>
