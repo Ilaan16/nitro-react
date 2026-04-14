@@ -1,7 +1,8 @@
+import { MouseEventType, RoomObjectCategory } from '@nitrots/nitro-renderer';
 import { FC, useEffect, useRef, useState } from 'react';
 import { GetRoomEngine, WiredFurniType } from '../../../../api';
 import { Button, Column, Flex, Text } from '../../../../common';
-import { useObjectRollOverEvent, useObjectSelectedEvent, useWired } from '../../../../hooks';
+import { useObjectRollOverEvent, useRoom, useWired } from '../../../../hooks';
 import { WiredActionBaseView } from './WiredActionBaseView';
 
 interface ZoneConfig
@@ -26,27 +27,16 @@ export const WiredActionSelectorUsersInZoneView: FC<{}> = props =>
     const [ selecting, setSelecting ] = useState(false);
     const [ preview, setPreview ] = useState<ZoneConfig | null>(null);
 
+    const hoverPos = useRef<TilePos | null>(null);
     const cornerA = useRef<TilePos | null>(null);
-    const cornerB = useRef<TilePos | null>(null);
-    const isDragging = useRef(false);
 
     const { trigger = null, setIntParams = null, setStringParam = null } = useWired();
+    const { roomSession = null } = useRoom();
 
     const save = () =>
     {
         setIntParams([ minX, maxX, minY, maxY ]);
         setStringParam(JSON.stringify({ minX, maxX, minY, maxY, invert, filterExisting: false }));
-    };
-
-    const tileFromEvent = (event: any): TilePos | null =>
-    {
-        const obj = GetRoomEngine().getRoomObject(event.roomId, event.id, event.category);
-
-        if(!obj) return null;
-
-        const pos = obj.getLocation();
-
-        return { x: Math.floor(pos.x), y: Math.floor(pos.y) };
     };
 
     const buildZone = (a: TilePos, b: TilePos): ZoneConfig => ({
@@ -58,51 +48,56 @@ export const WiredActionSelectorUsersInZoneView: FC<{}> = props =>
         filterExisting: false,
     });
 
-    // Clic dans la room → coin A
-    useObjectSelectedEvent(event =>
-    {
-        if(!selecting) return;
-
-        const tile = tileFromEvent(event);
-
-        if(!tile) return;
-
-        cornerA.current = tile;
-        cornerB.current = tile;
-        isDragging.current = true;
-        setPreview(buildZone(tile, tile));
-    });
-
-    // Survol → update coin B + preview
+    // Survol → met à jour la position courante + preview si drag en cours
     useObjectRollOverEvent(event =>
     {
-        if(!selecting || !isDragging.current || !cornerA.current) return;
+        if(!selecting) return;
+        if(event.category === RoomObjectCategory.UNIT) return;
 
-        const tile = tileFromEvent(event);
+        const obj = GetRoomEngine().getRoomObject(event.roomId, event.id, event.category);
 
-        if(!tile) return;
+        if(!obj) return;
 
-        cornerB.current = tile;
-        setPreview(buildZone(cornerA.current, tile));
+        const pos = obj.getLocation();
+        const tile: TilePos = { x: Math.floor(pos.x), y: Math.floor(pos.y) };
+
+        hoverPos.current = tile;
+
+        if(cornerA.current) setPreview(buildZone(cornerA.current, tile));
     });
 
-    // Mouseup → finalise la sélection
+    // Overlay pour bloquer le drag Nitro + gérer mousedown/mouseup
     useEffect(() =>
     {
-        if(!selecting) return;
+        if(!selecting || !roomSession) return;
+
+        const overlay = document.createElement('div');
+
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:500;cursor:crosshair;';
+        document.body.appendChild(overlay);
+
+        const onMouseMove = (e: MouseEvent) =>
+        {
+            // Relay mousemove vers le renderer → déclenche OBJECT_ROLL_OVER
+            GetRoomEngine().dispatchMouseEvent(1, e.clientX, e.clientY, MouseEventType.MOUSE_MOVE, e.altKey, e.ctrlKey || e.metaKey, e.shiftKey, false);
+        };
+
+        const onMouseDown = () =>
+        {
+            if(!hoverPos.current) return;
+
+            cornerA.current = { ...hoverPos.current };
+            setPreview(buildZone(cornerA.current, cornerA.current));
+        };
 
         const onMouseUp = () =>
         {
-            if(!isDragging.current) return;
-
-            isDragging.current = false;
-
             const a = cornerA.current;
-            const b = cornerB.current ?? cornerA.current;
+            const b = hoverPos.current ?? cornerA.current;
 
-            if(a)
+            if(a && b)
             {
-                const zone = buildZone(a, b!);
+                const zone = buildZone(a, b);
 
                 setMinX(zone.minX);
                 setMaxX(zone.maxX);
@@ -111,15 +106,36 @@ export const WiredActionSelectorUsersInZoneView: FC<{}> = props =>
             }
 
             cornerA.current = null;
-            cornerB.current = null;
+            hoverPos.current = null;
             setPreview(null);
             setSelecting(false);
         };
 
-        document.addEventListener('mouseup', onMouseUp);
+        const onKeyDown = (e: KeyboardEvent) =>
+        {
+            if(e.key === 'Escape')
+            {
+                cornerA.current = null;
+                hoverPos.current = null;
+                setPreview(null);
+                setSelecting(false);
+            }
+        };
 
-        return () => document.removeEventListener('mouseup', onMouseUp);
-    }, [ selecting ]);
+        overlay.addEventListener('mousemove', onMouseMove);
+        overlay.addEventListener('mousedown', onMouseDown);
+        overlay.addEventListener('mouseup', onMouseUp);
+        window.addEventListener('keydown', onKeyDown);
+
+        return () =>
+        {
+            overlay.removeEventListener('mousemove', onMouseMove);
+            overlay.removeEventListener('mousedown', onMouseDown);
+            overlay.removeEventListener('mouseup', onMouseUp);
+            window.removeEventListener('keydown', onKeyDown);
+            document.body.removeChild(overlay);
+        };
+    }, [ selecting, roomSession ]);
 
     useEffect(() =>
     {
