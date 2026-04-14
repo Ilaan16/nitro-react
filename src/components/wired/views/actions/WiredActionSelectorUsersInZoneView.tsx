@@ -1,6 +1,6 @@
 import { NitroPoint, RoomGeometry, Vector3d } from '@nitrots/nitro-renderer';
 import { FC, useCallback, useEffect, useRef, useState } from 'react';
-import { GetNitroInstance, GetRoomEngine, WiredFurniType } from '../../../../api';
+import { GetRoomEngine, WiredFurniType } from '../../../../api';
 import { Button, Column, Flex, Text } from '../../../../common';
 import { useRoom, useWired } from '../../../../hooks';
 import { WiredActionBaseView } from './WiredActionBaseView';
@@ -51,25 +51,26 @@ export const WiredActionSelectorUsersInZoneView: FC<{}> = props =>
         filterExisting: false,
     });
 
-    // Convertit coordonnées client (clientX/Y) → tuile de grille via géométrie Nitro
-    // Formule : geoX = clientX - canvasWidth/2 - screenOffsetX
-    // (le renderer centre le repère géométrique au milieu du canvas)
+    // Même pipeline que RoomEngine.getRoomObjectScreenLocation (l.2616–2645) :
+    // screen = geomScreen * scale + (width/2 + screenOffset)
+    // → inverse : geomScreen = (screen - width/2 - screenOffset) / scale
     const tileFromClient = useCallback((clientX: number, clientY: number): TilePos | null =>
     {
         if(!roomSession) return null;
 
         const engine = GetRoomEngine();
+        const rc = engine.getRoomInstanceRenderingCanvas(roomSession.roomId, 1);
         const offset = engine.getRoomInstanceRenderingCanvasOffset(roomSession.roomId, 1);
         const geometry = engine.getRoomInstanceGeometry(roomSession.roomId, 1) as RoomGeometry;
 
-        if(!offset || !geometry) return null;
+        if(!rc || !offset || !geometry) return null;
 
-        const view = GetNitroInstance().application.renderer.view;
-        const halfW = view.width  / 2;
-        const halfH = view.height / 2;
+        const scale = rc.scale || 1;
+        const gx = (clientX - (rc.width / 2) - offset.x) / scale;
+        const gy = (clientY - (rc.height / 2) - offset.y) / scale;
 
         const pos = geometry.getPlanePosition(
-            new NitroPoint(clientX - halfW - offset.x, clientY - halfH - offset.y),
+            new NitroPoint(gx, gy),
             new Vector3d(0, 0, 0),
             new Vector3d(1, 0, 0),
             new Vector3d(0, 1, 0)
@@ -80,26 +81,26 @@ export const WiredActionSelectorUsersInZoneView: FC<{}> = props =>
         return { x: Math.floor(pos.x), y: Math.floor(pos.y) };
     }, [ roomSession ]);
 
-    // Convertit tuile → coordonnées pixel (pour le dessin du rectangle)
     const pixelFromTile = useCallback((x: number, y: number): PixelPos | null =>
     {
         if(!roomSession) return null;
 
         const engine = GetRoomEngine();
+        const rc = engine.getRoomInstanceRenderingCanvas(roomSession.roomId, 1);
         const offset = engine.getRoomInstanceRenderingCanvasOffset(roomSession.roomId, 1);
         const geometry = engine.getRoomInstanceGeometry(roomSession.roomId, 1) as RoomGeometry;
 
-        if(!offset || !geometry) return null;
+        if(!rc || !offset || !geometry) return null;
 
-        const view = GetNitroInstance().application.renderer.view;
-        const halfW = view.width  / 2;
-        const halfH = view.height / 2;
-
+        const scale = rc.scale || 1;
         const screenPos = geometry.getScreenPosition(new Vector3d(x, y, 0));
 
         if(!screenPos) return null;
 
-        return { px: screenPos.x + halfW + offset.x, py: screenPos.y + halfH + offset.y };
+        return {
+            px: (screenPos.x * scale) + (rc.width / 2) + offset.x,
+            py: (screenPos.y * scale) + (rc.height / 2) + offset.y,
+        };
     }, [ roomSession ]);
 
     // Dessine le rectangle isométrique sur le canvas overlay
