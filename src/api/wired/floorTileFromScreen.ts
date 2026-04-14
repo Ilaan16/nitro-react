@@ -2,6 +2,7 @@ import {
     NitroPoint,
     RoomEngine,
     RoomGeometry,
+    RoomMapData,
     RoomObjectCategory,
     RoomObjectVariable,
     RoomPlaneData,
@@ -25,8 +26,8 @@ export function floorTileFromScreen(
     roomId: number,
     clientX: number,
     clientY: number,
-    parserCache: { mapRef: unknown; parser: RoomPlaneParser } | null,
-): { tile: FloorTilePos | null; parserCache: { mapRef: unknown; parser: RoomPlaneParser } | null }
+    parserCache: { mapRef: RoomMapData; parser: RoomPlaneParser } | null,
+): { tile: FloorTilePos | null; parserCache: { mapRef: RoomMapData; parser: RoomPlaneParser } | null }
 {
     const engine = GetRoomEngine();
     const rc = engine.getRoomInstanceRenderingCanvas(roomId, 1);
@@ -46,7 +47,7 @@ export function floorTileFromScreen(
     const screenPoint = new NitroPoint(gx, gy);
 
     const roomObject = engine.getRoomObject(roomId, RoomEngine.ROOM_OBJECT_ID, RoomObjectCategory.ROOM);
-    const mapData = roomObject?.model?.getValue(RoomObjectVariable.ROOM_MAP_DATA);
+    const mapData = roomObject?.model?.getValue<RoomMapData>(RoomObjectVariable.ROOM_MAP_DATA);
 
     if(!mapData) return { tile: null, parserCache };
 

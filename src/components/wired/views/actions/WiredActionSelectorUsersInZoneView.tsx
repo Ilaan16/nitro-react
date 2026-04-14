@@ -1,4 +1,4 @@
-import { RoomGeometry, RoomPlaneParser, Vector3d } from '@nitrots/nitro-renderer';
+import { RoomGeometry, RoomMapData, RoomPlaneParser, Vector3d } from '@nitrots/nitro-renderer';
 import { FC, useCallback, useEffect, useRef, useState } from 'react';
 import { floorTileFromScreen, GetRoomEngine, WiredFurniType } from '../../../../api';
 import { Button, Column, Flex, Text } from '../../../../common';
@@ -35,7 +35,7 @@ export const WiredActionSelectorUsersInZoneView: FC<{}> = props =>
     const isDragging = useRef(false);
     const overlayRef = useRef<HTMLCanvasElement>(null);
     /** Cache RoomPlaneParser pour floorTileFromScreen (même logique que RoomLogic.mouseEvent). */
-    const planeParserCacheRef = useRef<{ mapRef: unknown; parser: RoomPlaneParser } | null>(null);
+    const planeParserCacheRef = useRef<{ mapRef: RoomMapData; parser: RoomPlaneParser } | null>(null);
     /** Évite de réécraser la zone avec d’autres instances du même trigger (WiredFurniActionEvent). */
     const loadedWiredIdRef = useRef<number | null>(null);
 
