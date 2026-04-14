@@ -27,6 +27,8 @@ export const WiredActionSelectorUsersInZoneView: FC<{}> = props =>
     const [ invert, setInvert ] = useState(false);
     const [ selecting, setSelecting ] = useState(false);
     const [ liveZone, setLiveZone ] = useState<ZoneConfig | null>(null);
+    /** Vrai si la zone vient du serveur ou a été définie au moins une fois (évite un faux 0,0,0,0 au premier chargement). */
+    const [ zoneConfigured, setZoneConfigured ] = useState(false);
 
     const hoverPos = useRef<TilePos | null>(null);
     const cornerA = useRef<TilePos | null>(null);
@@ -142,11 +144,55 @@ export const WiredActionSelectorUsersInZoneView: FC<{}> = props =>
         ctx.stroke();
     }, [ pixelFromTile ]);
 
-    // Redessine dès que la zone live change
+    const isZoneDefined = maxX >= minX && maxY >= minY;
+    const showZoneOverlay = selecting || (zoneConfigured && isZoneDefined);
+
+    // Aperçu : sélection en cours (live) ou zone enregistrée tant que le panneau wired est ouvert
     useEffect(() =>
     {
-        drawRect(liveZone);
-    }, [ liveZone, drawRect ]);
+        const zoneToDraw = (selecting && liveZone)
+            ? liveZone
+            : (zoneConfigured && isZoneDefined
+                ? { minX, maxX, minY, maxY, invert, filterExisting: false }
+                : null);
+
+        const cv = overlayRef.current;
+
+        if(cv && showZoneOverlay)
+        {
+            cv.width = window.innerWidth;
+            cv.height = window.innerHeight;
+        }
+
+        drawRect(zoneToDraw);
+    }, [ selecting, liveZone, minX, maxX, minY, maxY, invert, zoneConfigured, isZoneDefined, showZoneOverlay, drawRect ]);
+
+    useEffect(() =>
+    {
+        const onResize = () =>
+        {
+            if(!showZoneOverlay) return;
+
+            const cv = overlayRef.current;
+
+            if(!cv) return;
+
+            cv.width = window.innerWidth;
+            cv.height = window.innerHeight;
+
+            const zoneToDraw = (selecting && liveZone)
+                ? liveZone
+                : (zoneConfigured && isZoneDefined
+                    ? { minX, maxX, minY, maxY, invert, filterExisting: false }
+                    : null);
+
+            drawRect(zoneToDraw);
+        };
+
+        window.addEventListener('resize', onResize);
+
+        return () => window.removeEventListener('resize', onResize);
+    }, [ selecting, liveZone, minX, maxX, minY, maxY, invert, zoneConfigured, isZoneDefined, showZoneOverlay, drawRect ]);
 
     // Gestionnaires souris + setup du mode sélection
     useEffect(() =>
@@ -211,6 +257,7 @@ export const WiredActionSelectorUsersInZoneView: FC<{}> = props =>
                 setMaxX(zone.maxX);
                 setMinY(zone.minY);
                 setMaxY(zone.maxY);
+                setZoneConfigured(true);
             }
 
             cornerA.current = null;
@@ -244,16 +291,6 @@ export const WiredActionSelectorUsersInZoneView: FC<{}> = props =>
             document.removeEventListener('mousemove', onMouseMove);
             document.removeEventListener('mouseup', onMouseUp);
             window.removeEventListener('keydown', onKeyDown);
-
-            // Effacer le rectangle quand on quitte le mode
-            const canvas = overlayRef.current;
-
-            if(canvas)
-            {
-                const ctx = canvas.getContext('2d');
-
-                if(ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
-            }
         };
     }, [ selecting, roomSession, tileFromClient ]);
 
@@ -272,6 +309,7 @@ export const WiredActionSelectorUsersInZoneView: FC<{}> = props =>
                 setMinY(config.minY ?? 0);
                 setMaxY(config.maxY ?? 0);
                 setInvert(config.invert ?? false);
+                setZoneConfigured(true);
 
                 return;
             }
@@ -284,11 +322,12 @@ export const WiredActionSelectorUsersInZoneView: FC<{}> = props =>
             setMaxX(trigger.intData[1]);
             setMinY(trigger.intData[2]);
             setMaxY(trigger.intData[3]);
+            setZoneConfigured(true);
         }
     }, [ trigger ]);
 
     const display = liveZone ?? { minX, maxX, minY, maxY };
-    const hasZone = display.minX !== 0 || display.maxX !== 0 || display.minY !== 0 || display.maxY !== 0;
+    const hasZone = isZoneDefined && zoneConfigured;
 
     return (
         <>
@@ -300,7 +339,7 @@ export const WiredActionSelectorUsersInZoneView: FC<{}> = props =>
                     inset: 0,
                     pointerEvents: 'none',
                     zIndex: 498,
-                    display: selecting ? 'block' : 'none',
+                    display: showZoneOverlay ? 'block' : 'none',
                 } }
             />
             <WiredActionBaseView requiresFurni={ WiredFurniType.STUFF_SELECTION_OPTION_NONE } hasSpecialInput={ true } save={ save }>
