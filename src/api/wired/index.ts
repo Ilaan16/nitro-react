@@ -1,3 +1,4 @@
+export * from './floorTileFromScreen';
 export * from './GetWiredTimeLocale';
 export * from './WiredActionLayoutCode';
 export * from './WiredConditionLayoutCode';

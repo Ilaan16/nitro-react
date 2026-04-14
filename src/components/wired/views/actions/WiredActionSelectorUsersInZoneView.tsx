@@ -1,6 +1,6 @@
-import { NitroPoint, RoomGeometry, Vector3d } from '@nitrots/nitro-renderer';
+import { RoomGeometry, RoomPlaneParser, Vector3d } from '@nitrots/nitro-renderer';
 import { FC, useCallback, useEffect, useRef, useState } from 'react';
-import { GetRoomEngine, WiredFurniType } from '../../../../api';
+import { floorTileFromScreen, GetRoomEngine, WiredFurniType } from '../../../../api';
 import { Button, Column, Flex, Text } from '../../../../common';
 import { useRoom, useWired } from '../../../../hooks';
 import { WiredActionBaseView } from './WiredActionBaseView';
@@ -34,6 +34,10 @@ export const WiredActionSelectorUsersInZoneView: FC<{}> = props =>
     const cornerA = useRef<TilePos | null>(null);
     const isDragging = useRef(false);
     const overlayRef = useRef<HTMLCanvasElement>(null);
+    /** Cache RoomPlaneParser pour floorTileFromScreen (même logique que RoomLogic.mouseEvent). */
+    const planeParserCacheRef = useRef<{ mapRef: unknown; parser: RoomPlaneParser } | null>(null);
+    /** Évite de réécraser la zone avec d’autres instances du même trigger (WiredFurniActionEvent). */
+    const loadedWiredIdRef = useRef<number | null>(null);
 
     const { trigger = null, setIntParams = null, setStringParam = null } = useWired();
     const { roomSession = null } = useRoom();
@@ -53,34 +57,21 @@ export const WiredActionSelectorUsersInZoneView: FC<{}> = props =>
         filterExisting: false,
     });
 
-    // Même pipeline que RoomEngine.getRoomObjectScreenLocation (l.2616–2645) :
-    // screen = geomScreen * scale + (width/2 + screenOffset)
-    // → inverse : geomScreen = (screen - width/2 - screenOffset) / scale
+    // Même chaîne que RoomSpriteCanvas → RoomLogic (plan du sol réel, pas des axes monde fixes).
     const tileFromClient = useCallback((clientX: number, clientY: number): TilePos | null =>
     {
         if(!roomSession) return null;
 
-        const engine = GetRoomEngine();
-        const rc = engine.getRoomInstanceRenderingCanvas(roomSession.roomId, 1);
-        const offset = engine.getRoomInstanceRenderingCanvasOffset(roomSession.roomId, 1);
-        const geometry = engine.getRoomInstanceGeometry(roomSession.roomId, 1) as RoomGeometry;
-
-        if(!rc || !offset || !geometry) return null;
-
-        const scale = rc.scale || 1;
-        const gx = (clientX - (rc.width / 2) - offset.x) / scale;
-        const gy = (clientY - (rc.height / 2) - offset.y) / scale;
-
-        const pos = geometry.getPlanePosition(
-            new NitroPoint(gx, gy),
-            new Vector3d(0, 0, 0),
-            new Vector3d(1, 0, 0),
-            new Vector3d(0, 1, 0)
+        const { tile, parserCache } = floorTileFromScreen(
+            roomSession.roomId,
+            clientX,
+            clientY,
+            planeParserCacheRef.current,
         );
 
-        if(!pos) return null;
+        planeParserCacheRef.current = parserCache;
 
-        return { x: Math.floor(pos.x), y: Math.floor(pos.y) };
+        return tile;
     }, [ roomSession ]);
 
     const pixelFromTile = useCallback((x: number, y: number): PixelPos | null =>
@@ -296,7 +287,17 @@ export const WiredActionSelectorUsersInZoneView: FC<{}> = props =>
 
     useEffect(() =>
     {
-        if(!trigger) return;
+        if(!trigger)
+        {
+            loadedWiredIdRef.current = null;
+
+            return;
+        }
+
+        // Ne pas réappliquer les params serveur à chaque WiredFurniActionEvent (même id) : ça écrase la sélection en cours.
+        if(loadedWiredIdRef.current === trigger.id) return;
+
+        loadedWiredIdRef.current = trigger.id;
 
         try
         {

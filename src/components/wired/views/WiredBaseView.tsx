@@ -1,4 +1,4 @@
-import { FC, PropsWithChildren, useEffect, useState } from 'react';
+import { FC, PropsWithChildren, useEffect, useRef, useState } from 'react';
 import { GetSessionDataManager, LocalizeText, WiredFurniType, WiredSelectionVisualizer } from '../../../api';
 import { Button, Column, Flex, NitroCardContentView, NitroCardHeaderView, NitroCardView, Text } from '../../../common';
 import { useWired } from '../../../hooks';
@@ -20,6 +20,8 @@ export const WiredBaseView: FC<PropsWithChildren<WiredBaseViewProps>> = props =>
     const [ wiredDescription, setWiredDescription ] = useState<string>(null);
     const [ needsSave, setNeedsSave ] = useState<boolean>(false);
     const { trigger = null, setTrigger = null, setIntParams = null, setStringParam = null, setFurniIds = null, setAllowsFurni = null, saveWired = null } = useWired();
+    /** N’initialise intParams/stringParam qu’à l’ouverture d’un wired (id), pas à chaque réémission du parser. */
+    const syncedWiredIdRef = useRef<number | null>(null);
 
     const onClose = () => setTrigger(null);
     
@@ -43,7 +45,12 @@ export const WiredBaseView: FC<PropsWithChildren<WiredBaseViewProps>> = props =>
 
     useEffect(() =>
     {
-        if(!trigger) return;
+        if(!trigger)
+        {
+            syncedWiredIdRef.current = null;
+
+            return;
+        }
 
         const spriteId = (trigger.spriteId || -1);
         const furniData = GetSessionDataManager().getFloorItemData(spriteId);
@@ -59,8 +66,10 @@ export const WiredBaseView: FC<PropsWithChildren<WiredBaseViewProps>> = props =>
             setWiredDescription(furniData.description);
         }
 
-        if(hasSpecialInput)
+        if(hasSpecialInput && syncedWiredIdRef.current !== trigger.id)
         {
+            syncedWiredIdRef.current = trigger.id;
+
             setIntParams(trigger.intData);
             setStringParam(trigger.stringData);
         }
