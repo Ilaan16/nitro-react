@@ -1,6 +1,6 @@
 import { NitroPoint, RoomGeometry, Vector3d } from '@nitrots/nitro-renderer';
 import { FC, useCallback, useEffect, useRef, useState } from 'react';
-import { GetRoomEngine, WiredFurniType } from '../../../../api';
+import { GetNitroInstance, GetRoomEngine, WiredFurniType } from '../../../../api';
 import { Button, Column, Flex, Text } from '../../../../common';
 import { useRoom, useWired } from '../../../../hooks';
 import { WiredActionBaseView } from './WiredActionBaseView';
@@ -52,6 +52,8 @@ export const WiredActionSelectorUsersInZoneView: FC<{}> = props =>
     });
 
     // Convertit coordonnées client (clientX/Y) → tuile de grille via géométrie Nitro
+    // Formule : geoX = clientX - canvasWidth/2 - screenOffsetX
+    // (le renderer centre le repère géométrique au milieu du canvas)
     const tileFromClient = useCallback((clientX: number, clientY: number): TilePos | null =>
     {
         if(!roomSession) return null;
@@ -62,8 +64,12 @@ export const WiredActionSelectorUsersInZoneView: FC<{}> = props =>
 
         if(!offset || !geometry) return null;
 
+        const view = GetNitroInstance().application.renderer.view;
+        const halfW = view.width  / 2;
+        const halfH = view.height / 2;
+
         const pos = geometry.getPlanePosition(
-            new NitroPoint(clientX - offset.x, clientY - offset.y),
+            new NitroPoint(clientX - halfW - offset.x, clientY - halfH - offset.y),
             new Vector3d(0, 0, 0),
             new Vector3d(1, 0, 0),
             new Vector3d(0, 1, 0)
@@ -85,11 +91,15 @@ export const WiredActionSelectorUsersInZoneView: FC<{}> = props =>
 
         if(!offset || !geometry) return null;
 
+        const view = GetNitroInstance().application.renderer.view;
+        const halfW = view.width  / 2;
+        const halfH = view.height / 2;
+
         const screenPos = geometry.getScreenPosition(new Vector3d(x, y, 0));
 
         if(!screenPos) return null;
 
-        return { px: screenPos.x + offset.x, py: screenPos.y + offset.y };
+        return { px: screenPos.x + halfW + offset.x, py: screenPos.y + halfH + offset.y };
     }, [ roomSession ]);
 
     // Dessine le rectangle isométrique sur le canvas overlay
