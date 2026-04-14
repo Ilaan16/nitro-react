@@ -26,4 +26,5 @@ export class WiredActionLayoutCode
     public static BOT_FOLLOW_AVATAR: number = 25;
     public static BOT_CHANGE_FIGURE: number = 26;
     public static BOT_TALK_DIRECT_TO_AVTR: number = 27;
+    public static SELECTOR_USERS_IN_ZONE: number = 100;
 }
