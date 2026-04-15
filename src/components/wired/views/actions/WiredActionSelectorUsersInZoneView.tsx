@@ -18,6 +18,26 @@ interface ZoneConfig
 interface TilePos { x: number; y: number; }
 interface PixelPos { px: number; py: number; }
 
+/**
+ * Correction appliquée aux bornes après picking (min/max X/Y).
+ * +1 : ex. sélection affichée 6–8 / 9–11 → zone sauvegardée 7–9 / 10–12.
+ * Si chez toi c’est l’inverse, mets -1.
+ */
+const ZONE_SELECTION_TILE_OFFSET = 1;
+
+function applyZoneSelectionOffset(zone: ZoneConfig): ZoneConfig
+{
+    const d = ZONE_SELECTION_TILE_OFFSET;
+
+    return {
+        ...zone,
+        minX: zone.minX + d,
+        maxX: zone.maxX + d,
+        minY: zone.minY + d,
+        maxY: zone.maxY + d,
+    };
+}
+
 export const WiredActionSelectorUsersInZoneView: FC<{}> = props =>
 {
     const [ minX, setMinX ] = useState(0);
@@ -214,7 +234,7 @@ export const WiredActionSelectorUsersInZoneView: FC<{}> = props =>
 
             cornerA.current = { ...tile };
             isDragging.current = true;
-            setLiveZone(buildZone(tile, tile));
+            setLiveZone(applyZoneSelectionOffset(buildZone(tile, tile)));
         };
 
         const onMouseMove = (e: MouseEvent) =>
@@ -227,7 +247,7 @@ export const WiredActionSelectorUsersInZoneView: FC<{}> = props =>
 
             if(isDragging.current && cornerA.current)
             {
-                setLiveZone(buildZone(cornerA.current, tile));
+                setLiveZone(applyZoneSelectionOffset(buildZone(cornerA.current, tile)));
             }
         };
 
@@ -242,7 +262,7 @@ export const WiredActionSelectorUsersInZoneView: FC<{}> = props =>
 
             if(a && b)
             {
-                const zone = buildZone(a, b);
+                const zone = applyZoneSelectionOffset(buildZone(a, b));
 
                 setMinX(zone.minX);
                 setMaxX(zone.maxX);
